@@ -67,7 +67,7 @@ public class AuthentificationState implements SocketParser {
 
         } else if (datagram.startsWith("TT32")) {
             client.setCurrentState(StateEnum.STANDING);
-            client.getMessagesIn().addFirst(datagram);
+            client.getMessagesQueue().addFirst(datagram);
             client.send_message("GC1");
         }
     }

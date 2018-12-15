@@ -19,7 +19,7 @@ public class NotStartedState implements SocketParser {
     public void parse(String datagram, Client client) throws Exception {
 
         client.setCurrentState(StateEnum.AUTHENTIFICATION);
-        client.getMessagesIn().addFirst(datagram);
+        client.getMessagesQueue().addFirst(datagram);
         
         
     }

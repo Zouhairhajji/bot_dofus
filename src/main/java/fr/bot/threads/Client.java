@@ -4,9 +4,10 @@
  * and open the template in the editor.
  */
 package fr.bot.threads;
- 
+
 import fr.bot.abstracts.SocketParser;
 import fr.bot.beans.BigTable;
+import fr.bot.beans.Packet;
 import fr.bot.enums.ClientAttribute;
 import static fr.bot.enums.ClientAttribute.PASSWORD;
 import static fr.bot.enums.ClientAttribute.PLAYED_ID;
@@ -23,9 +24,11 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.lang.invoke.MethodHandles;
 import java.net.Socket;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
 import javax.annotation.PostConstruct;
 import lombok.Getter;
@@ -43,15 +46,17 @@ import org.springframework.stereotype.Component;
 public class Client extends Thread {
 
     private static final org.slf4j.Logger logger = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
-    
+
     private boolean running;
     private boolean pause;
-    
+
     // big table '' google 
     private BigTable<ClientAttribute, Object> bigTable;
 
     // queue messages
-    private LinkedList<String> messagesIn;
+    private LinkedList<String> messagesQueue;
+    // history
+    private List<Packet> history;
 
     // socket
     private Socket socket;
@@ -65,7 +70,14 @@ public class Client extends Thread {
     @PostConstruct
     public void postConstruct() {
         this.bigTable = new BigTable<>();
-        this.messagesIn = new LinkedList<>();
+        this.messagesQueue = new LinkedList<>();
+        this.history = new ArrayList<Packet>() {
+            @Override
+            public boolean add(Packet packet) {
+                logger.info("[{}] {}: {}", currentState, packet.isSent() ? ">" : "<", packet.getRowdata());
+                return super.add(packet);
+            }
+        };
         this.parsers = new HashMap() {
             {
                 put(StateEnum.NOT_STARTED, new NotStartedState());
@@ -81,7 +93,6 @@ public class Client extends Thread {
         this.bigTable.put(PASSWORD, password);
         this.bigTable.put(SERVER_ID, serverId);
         this.bigTable.put(PLAYED_ID, playerId);
-
     }
 
     @Override
@@ -126,14 +137,14 @@ public class Client extends Thread {
     }
 
     public String read_message() throws IOException {
-        if (!messagesIn.isEmpty()) {
-            String message = this.messagesIn.removeFirst();
-            logger.info("[{}] [{}] {}", this.currentState, "<", message);
+        if (!messagesQueue.isEmpty()) {
+            String message = this.messagesQueue.removeFirst();
+            this.history.add(Packet.create_packet(Boolean.FALSE, message));
             return message;
         }
         byte[] byteMessage = new byte[20000];
         reader.read(byteMessage);
-        
+
         int size = 0;
         while (size < byteMessage.length) {
             if (byteMessage[size] == 0 && byteMessage[size + 1] == 0) {
@@ -149,17 +160,18 @@ public class Client extends Thread {
         } else if (message.split((char) 0 + "").length == 1) {
             // nothing to do
         } else {
-            this.messagesIn.addAll(Arrays.asList(message.split((char) 0 + "")));
-            message = this.messagesIn.removeLast();
+            this.messagesQueue.addAll(Arrays.asList(message.split((char) 0 + "")));
+            message = this.messagesQueue.removeLast();
         }
-        logger.info("[{}] [{}] {}", this.currentState, "<", message);
+        this.history.add(Packet.create_packet(Boolean.FALSE, message));
+
         return message;
     }
 
     public void send_message(String message) throws IOException {
         byte[] bytes = (message + "\n\r").getBytes("UTF-8");
 
-        logger.info("[{}] [{}] {}", this.currentState, ">", message);
+        this.history.add(Packet.create_packet(Boolean.TRUE, message));
 
         this.sender.write(bytes);
         this.sender.flush();
